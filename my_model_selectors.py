@@ -142,20 +142,20 @@ class SelectorCV(ModelSelector):
         model_scores = [None] * len(component_range)
         
         for number_of_components in component_range:
-            if len(self.sequences) > 2:
-                component_scores = []
-                for cv_train_idx, cv_test_idx in KFold().split(self.sequences):
-                    self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
-                    test_X, test_lengths = combine_sequences(cv_test_idx, self.sequences)
-                    try:
-                        trained_model_score = self.base_model(number_of_components).score(test_X, test_lengths)
-                    except ValueError:
-                        continue
-                    component_scores.append(trained_model_score)
-                component_scores_avg = sum(component_scores) / len(component_scores)
+            component_scores = []
+            for cv_train_idx, cv_test_idx in KFold(n_splits = min(3, len(self.sequences))).split(self.sequences):
+                self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
+                test_X, test_lengths = combine_sequences(cv_test_idx, self.sequences)
+                try:
+                    trained_model_score = self.base_model(number_of_components).score(test_X, test_lengths)
+                except (ValueError, AttributeError) as e:
+                    continue
+                component_scores.append(trained_model_score)
+            if component_scores:
+                component_scores_avg = np.mean(component_scores)
                 model_scores[number_of_components - self.min_n_components] = component_scores_avg
 
-        if all(x is None for x in model_scores): return None
+        if all(x is None for x in model_scores): return base.model(self.min_n_components)
 
         best_model = model_scores.index(max(filter(None, model_scores))) + self.min_n_components
 
