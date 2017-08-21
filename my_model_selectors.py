@@ -13,10 +13,7 @@ class ModelSelector(object):
     base class for model selection (strategy design pattern)
     '''
 
-    def __init__(self, all_word_sequences: dict, all_word_Xlengths: dict, this_word: str,
-                 n_constant=3,
-                 min_n_components=2, max_n_components=10,
-                 random_state=14, verbose=False):
+    def __init__(self, all_word_sequences: dict, all_word_Xlengths: dict, this_word: str, n_constant=3, min_n_components=2, max_n_components=10, random_state=14, verbose=False):
         self.words = all_word_sequences
         self.hwords = all_word_Xlengths
         self.sequences = all_word_sequences[this_word]
@@ -76,8 +73,22 @@ class SelectorBIC(ModelSelector):
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        component_range = range(self.min_n_components, self.max_n_components + 1)
+
+        model_scores = [None] * len(component_range)
+
+        for number_of_components in component_range:
+            try:
+                model_score = (2 * self.base_model(number_of_components).score(self.X, self.lengths)) - (number_of_components * np.log2(self.X.shape[0]))
+            except ValueError:
+                continue
+            model_scores[number_of_components - self.min_n_components] = model_score
+
+        if all(x is None for x in model_scores): return None
+
+        best_model = model_scores.index(max(filter(None, model_scores))) + self.min_n_components
+
+        return self.base_model(best_model)
 
 
 class SelectorDIC(ModelSelector):
@@ -92,8 +103,30 @@ class SelectorDIC(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        component_range = range(self.min_n_components, self.max_n_components + 1)
+
+        model_scores = [None] * len(component_range)
+
+        for number_of_components in component_range:
+            try:
+                model = self.base_model(number_of_components)
+                model_score = model.score(self.X, self.lengths)
+            except ValueError:
+                continue
+
+            other_words = set(self.words) - set(self.this_word)
+            other_word_scores = [None] * len(other_words)
+            for other_word in other_words:
+                try:
+                    other_word_scores.append(model.score(other_word, model))
+                except TypeError:
+                    continue
+            model_penalty = sum(filter(None, other_word_scores)) / len([word for word in other_words if word])
+            model_scores[number_of_components - self.min_n_components] = model_score - model_penalty
+
+        best_model = model_scores.index(max(filter(None, model_scores))) + self.min_n_components
+
+        return self.base_model(best_model)
 
 
 class SelectorCV(ModelSelector):
@@ -104,5 +137,26 @@ class SelectorCV(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        component_range = range(self.min_n_components, self.max_n_components + 1)
+        
+        model_scores = [None] * len(component_range)
+        
+        for number_of_components in component_range:
+            if len(self.sequences) > 2:
+                component_scores = []
+                for cv_train_idx, cv_test_idx in KFold().split(self.sequences):
+                    self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
+                    test_X, test_lengths = combine_sequences(cv_test_idx, self.sequences)
+                    try:
+                        trained_model_score = self.base_model(number_of_components).score(test_X, test_lengths)
+                    except ValueError:
+                        continue
+                    component_scores.append(trained_model_score)
+                component_scores_avg = sum(component_scores) / len(component_scores)
+                model_scores[number_of_components - self.min_n_components] = component_scores_avg
+
+        if all(x is None for x in model_scores): return None
+
+        best_model = model_scores.index(max(filter(None, model_scores))) + self.min_n_components
+
+        return self.base_model(best_model)
