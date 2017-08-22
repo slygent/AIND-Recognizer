@@ -80,7 +80,7 @@ class SelectorBIC(ModelSelector):
         for number_of_components in component_range:
             try:
                 model_score = (2 * self.base_model(number_of_components).score(self.X, self.lengths)) - (number_of_components * np.log2(self.X.shape[0]))
-            except ValueError:
+            except (ValueError, AttributeError) as e:
                 continue
             model_scores[number_of_components - self.min_n_components] = model_score
 
@@ -111,7 +111,7 @@ class SelectorDIC(ModelSelector):
             try:
                 model = self.base_model(number_of_components)
                 model_score = model.score(self.X, self.lengths)
-            except ValueError:
+            except (ValueError, AttributeError) as e:
                 continue
 
             other_words = set(self.words) - set(self.this_word)
@@ -124,7 +124,10 @@ class SelectorDIC(ModelSelector):
             model_penalty = sum(filter(None, other_word_scores)) / len([word for word in other_words if word])
             model_scores[number_of_components - self.min_n_components] = model_score - model_penalty
 
-        best_model = model_scores.index(max(filter(None, model_scores))) + self.min_n_components
+        try:
+            best_model = model_scores.index(max(filter(None, model_scores))) + self.min_n_components
+        except ValueError:
+            return self.base_model(self.min_n_components)
 
         return self.base_model(best_model)
 
@@ -143,19 +146,23 @@ class SelectorCV(ModelSelector):
         
         for number_of_components in component_range:
             component_scores = []
-            for cv_train_idx, cv_test_idx in KFold(n_splits = min(3, len(self.sequences))).split(self.sequences):
-                self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
-                test_X, test_lengths = combine_sequences(cv_test_idx, self.sequences)
-                try:
-                    trained_model_score = self.base_model(number_of_components).score(test_X, test_lengths)
-                except (ValueError, AttributeError) as e:
-                    continue
-                component_scores.append(trained_model_score)
-            if component_scores:
-                component_scores_avg = np.mean(component_scores)
-                model_scores[number_of_components - self.min_n_components] = component_scores_avg
+            if len(self.sequences) > 2:
+                for cv_train_idx, cv_test_idx in KFold().split(self.sequences):
+                    self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
+                    test_X, test_lengths = combine_sequences(cv_test_idx, self.sequences)
+                    try:
+                        trained_model_score = self.base_model(number_of_components).score(test_X, test_lengths)
+                    except (ValueError, AttributeError) as e:
+                        continue
+                    component_scores.append(trained_model_score)
+                if component_scores:
+                    component_scores_avg = np.mean(component_scores)
+                    model_scores[number_of_components - self.min_n_components] = component_scores_avg
+            else:
+                return self.base_model(self.min_n_components)
 
-        if all(x is None for x in model_scores): return base.model(self.min_n_components)
+        if all(x is None for x in model_scores): 
+            return self.base_model(self.min_n_components)
 
         best_model = model_scores.index(max(filter(None, model_scores))) + self.min_n_components
 
