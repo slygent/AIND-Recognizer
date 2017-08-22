@@ -79,14 +79,18 @@ class SelectorBIC(ModelSelector):
 
         for number_of_components in component_range:
             try:
-                model_score = (2 * self.base_model(number_of_components).score(self.X, self.lengths)) - (number_of_components * np.log2(self.X.shape[0]))
+                model_score = -(2 * self.base_model(number_of_components).score(self.X, self.lengths)) + (
+                        number_of_components**2
+                        + ((2 * number_of_components * self.X.shape[1]) - 1)
+                        * np.log2(self.X.shape[0])
+                )
             except (ValueError, AttributeError) as e:
                 continue
             model_scores[number_of_components - self.min_n_components] = model_score
 
         if all(x is None for x in model_scores): return None
 
-        best_model = model_scores.index(max(filter(None, model_scores))) + self.min_n_components
+        best_model = model_scores.index(min(filter(None, model_scores))) + self.min_n_components
 
         return self.base_model(best_model)
 
